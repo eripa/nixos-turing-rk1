@@ -4,14 +4,7 @@
     # Stable: github:NixOS/nixpkgs/nixos-24.05
     # Unstable: github:NixOS/nixpkgs/nixos-unstable
     nixpkgs = {
-      url = "github:NixOS/nixpkgs/nixos-unstable";
-    };
-
-    # v6.12-rc1
-    # https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tag/?h=v6.12-rc1
-    kernel = {
-      url = "git+https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git?rev=03dc72319cee7d0dfefee9ae7041b67732f6b8cd";
-      flake = false;
+      url = "github:NixOS/nixpkgs/nixos-25.05";
     };
   };
 
