@@ -1,0 +1,48 @@
+name: "Build TuringPI RK1 NixOS image"
+
+on:
+  workflow_dispatch: {} # allow running manually
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main # Pull Requests targeting main
+
+jobs:
+  build-img:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build the flake
+        run: |
+          nix build .#nixosConfigurations.turing-rk1.config.system.build.sdImage
+
+      - name: Extract version from filename
+        id: version-extract
+        run: |
+            IMG_FILE=$(ls result/sd-image/nixos-image-sd-card-*.img)
+            NAME=$(basename $IMG_FILE .img)
+            echo "img_file=${IMG_FILE}" >> $GITHUB_OUTPUT
+            echo "name=${NAME}" >> $GITHUB_OUTPUT
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        # only upload artifacts if triggered manually to reduce storage waste
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: ${{ steps.version-extract.outputs.name }}
+          path: ${{ steps.version-extract.outputs.img_file }}
+          retention-days: 1
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          files: ${{ steps.version-extract.outputs.img_file }}
+          body: TuringPI RK1 NixOS ${{ github.ref_name }} image
