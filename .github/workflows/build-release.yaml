@@ -1,0 +1,69 @@
+name: "Build TuringPI RK1 NixOS image"
+
+on:
+  workflow_dispatch: {} # allow running manually
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main # Pull Requests targeting main
+
+jobs:
+  build-img:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build the flake
+        run: |
+          nix build .#nixosConfigurations.turing-rk1.config.system.build.sdImage
+
+      - name: Compress the image and extract the version name
+        id: compress
+        run: |
+            IMG_FILE=$(ls result/sd-image/nixos-image-sd-card-*.img)
+            IMG_GZ=$(basename "$IMG_FILE").gz
+            NAME=$(basename "$IMG_FILE" .img)
+
+            gzip --stdout "${IMG_FILE}" > "${IMG_GZ}"
+            du -sh "${IMG_GZ}"
+
+            SHA256_OUT=$(sha256sum "${IMG_GZ}")
+            echo "${SHA256_OUT}"
+            SHA256=$(echo $SHA256_OUT | awk '{print $1}')
+
+            {
+              echo "img_file=${IMG_GZ}"
+              echo "img_basename=$(basename "${IMG_GZ}")"
+              echo "img_sha256=${SHA256}"
+              echo "name=${NAME}"
+            } >> "$GITHUB_OUTPUT"
+
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        # only upload artifacts if triggered manually to reduce storage waste
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: ${{ steps.compress.outputs.name }}
+          path: ${{ steps.compress.outputs.img_file }}
+          retention-days: 1
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          files: ${{ steps.compress.outputs.img_file }}
+          body: |
+            ## TuringPI RK1 NixOS ${{ github.ref_name }} image
+
+            * Image: `${{ steps.compress.outputs.img_basename }}`
+            * sha256: `${{ steps.compress.outputs.img_sha256 }}`
+
+          draft: false
+          make_latest: true
