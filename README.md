@@ -46,10 +46,12 @@ And then include `turing-rk1.nixosModules.turing-rk1` in your modules for your s
 
 ## Flashing the image to an external block device
 
-While the RK1 supports booting off an external block device, uboot still needs to be on the eMMC to handle the boot process. You can download an image that only contains uboot from the [releases](https://github.com/GiyoMoon/nixos-turing-rk1/releases) page or build it yourself with:
+While the RK1 supports booting off an external block device, uboot still needs to be on the eMMC to handle the boot process. You can download an image that only contains uboot from the [releases](https://github.com/GiyoMoon/nixos-turing-rk1/releases) page or build it yourself:
 
 ```bash
 nix build github:GiyoMoon/nixos-turing-rk1#uboot-turing-rk1
+# or locally:
+nix build .#uboot-turing-rk1
 ```
 
 The image will be created under `./result/sd-image/uboot.img`.
