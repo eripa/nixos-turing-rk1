@@ -1,0 +1,95 @@
+name: build-nixos-image
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-nixos-image:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: "[uboot] build"
+        run: |
+          nix build .#uboot-turing-rk1
+      - name: "[uboot] sha256"
+        id: uboot-files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            IDENTIFIER="${GITHUB_REF_NAME}"
+          else
+            IDENTIFIER=$(git rev-parse --short HEAD)
+          fi
+
+          UBOOT_IMG="result/sd-image/uboot.img"
+          UBOOT_FILE="uboot-${IDENTIFIER}.img"
+          UBOOT_SHA256_FILE="${UBOOT_FILE}.sha256"
+
+          cp "${UBOOT_IMG}" "${UBOOT_FILE}"
+          sha256sum "${UBOOT_FILE}" > "${UBOOT_SHA256_FILE}"
+
+          {
+            echo "uboot_file=${UBOOT_FILE}"
+            echo "uboot_sha256_file=${UBOOT_SHA256_FILE}"
+          } >> "$GITHUB_OUTPUT"
+      - name: "[nixos] build"
+        run: |
+          nix build .#nixosConfigurations.turing-rk1.config.system.build.sdImage
+      - name: "[nixos] compress & sha256"
+        id: nixos-files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            IDENTIFIER="${GITHUB_REF_NAME}"
+          else
+            IDENTIFIER=$(git rev-parse --short HEAD)
+          fi
+
+          NIXOS_IMG=$(find result/sd-image -name 'nixos-image-sd-card-*.img' | head -n1)
+          NIXOS_FILE="nixos-turing-rk1-${IDENTIFIER}.img.gz"
+          NIXOS_SHA256_FILE="${NIXOS_FILE}.sha256"
+
+          gzip --stdout "${NIXOS_IMG}" > "${NIXOS_FILE}"
+          sha256sum "${NIXOS_FILE}" > "${NIXOS_SHA256_FILE}"
+
+          {
+            echo "nixos_file=${NIXOS_FILE}"
+            echo "nixos_sha256_file=${NIXOS_SHA256_FILE}"
+          } >> "$GITHUB_OUTPUT"
+      - name: upload
+        uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: nixos-turing-rk1-${{ github.ref_name || github.sha }}
+          path: |
+            ${{ steps.nixos-files.outputs.nixos_file }}
+            ${{ steps.nixos-files.outputs.nixos_sha256_file }}
+            ${{ steps.uboot-files.outputs.uboot_file }}
+            ${{ steps.uboot-files.outputs.uboot_sha256_file }}
+          retention-days: 1
+      - name: release
+        uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          files: |
+            ${{ steps.nixos-files.outputs.nixos_file }}
+            ${{ steps.nixos-files.outputs.nixos_sha256_file }}
+            ${{ steps.uboot-files.outputs.uboot_file }}
+            ${{ steps.uboot-files.outputs.uboot_sha256_file }}
+          draft: false
+          make_latest: true
