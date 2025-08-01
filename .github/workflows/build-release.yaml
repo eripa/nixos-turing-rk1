@@ -1,7 +1,7 @@
-name: "Build TuringPI RK1 NixOS image"
+name: build-nixos-image
 
 on:
-  workflow_dispatch: {} # allow running manually
+  workflow_dispatch: {}
   push:
     branches:
       - main
@@ -9,7 +9,7 @@ on:
       - 'v*'
   pull_request:
     branches:
-      - main # Pull Requests targeting main
+      - main
 
 jobs:
   build-img:
@@ -19,51 +19,63 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
-      - name: Build the flake
+      - name: build uboot
+        run: |
+          nix build .#uboot-turing-rk1
+      - name: build sdImage
         run: |
           nix build .#nixosConfigurations.turing-rk1.config.system.build.sdImage
-
-      - name: Compress the image and extract the version name
-        id: compress
+      - name: compress & sha256
+        id: files
+        shell: bash
         run: |
-            IMG_FILE=$(ls result/sd-image/nixos-image-sd-card-*.img)
-            IMG_GZ=$(basename "$IMG_FILE").gz
-            NAME=$(basename "$IMG_FILE" .img)
+          set -euo pipefail
 
-            gzip --stdout "${IMG_FILE}" > "${IMG_GZ}"
-            du -sh "${IMG_GZ}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            IDENTIFIER="${GITHUB_REF_NAME}"
+          else
+            IDENTIFIER=$(git rev-parse --short HEAD)
+          fi
 
-            SHA256_OUT=$(sha256sum "${IMG_GZ}")
-            echo "${SHA256_OUT}"
-            SHA256=$(echo $SHA256_OUT | awk '{print $1}')
+          NIXOS_IMG=$(find result/sd-image -name 'nixos-image-sd-card-*.img' | head -n1)
+          NIXOS_FILE="nixos-turing-rk1-${IDENTIFIER}.img.gz"
+          NIXOS_SHA256_FILE="${NIXOS_FILE}.sha256"
 
-            {
-              echo "img_file=${IMG_GZ}"
-              echo "img_basename=$(basename "${IMG_GZ}")"
-              echo "img_sha256=${SHA256}"
-              echo "name=${NAME}"
-            } >> "$GITHUB_OUTPUT"
+          gzip --stdout "${NIXOS_IMG}" > "${NIXOS_FILE}"
+          sha256sum "${NIXOS_FILE}" > "${NIXOS_SHA256_FILE}"
 
+          UBOOT_IMG="./result/sd-image/uboot.img"
+          UBOOT_FILE="uboot-${IDENTIFIER}.img"
+          UBOOT_SHA256_FILE="${UBOOT_FILE}.sha256"
 
-      - name: Upload Artifact
+          mv "${UBOOT_IMG}" "${UBOOT_FILE}"
+          sha256sum "${UBOOT_FILE}" > "${UBOOT_SHA256_FILE}"
+
+          {
+            echo "nixos_file=${NIXOS_FILE}"
+            echo "nixos_sha256_file=${NIXOS_SHA256_FILE}"
+            echo "uboot_file=${UBOOT_FILE}"
+            echo "uboot_sha256_file=${UBOOT_SHA256_FILE}"
+          } >> "$GITHUB_OUTPUT"
+      - name: upload
         uses: actions/upload-artifact@v4
-        # only upload artifacts if triggered manually to reduce storage waste
         if: github.event_name == 'workflow_dispatch'
         with:
-          name: ${{ steps.compress.outputs.name }}
-          path: ${{ steps.compress.outputs.img_file }}
+          name: nixos-turing-rk1-${{ github.ref_name || github.sha }}
+          path: |
+            ${{ steps.files.outputs.nixos_file }}
+            ${{ steps.files.outputs.nixos_sha256_file }}
+            ${{ steps.files.outputs.uboot_file }}
+            ${{ steps.files.outputs.uboot_sha256_file }}
           retention-days: 1
-
-      - name: Release
+      - name: release
         uses: softprops/action-gh-release@v2
         if: github.ref_type == 'tag'
         with:
-          files: ${{ steps.compress.outputs.img_file }}
-          body: |
-            ## TuringPI RK1 NixOS ${{ github.ref_name }} image
-
-            * Image: `${{ steps.compress.outputs.img_basename }}`
-            * sha256: `${{ steps.compress.outputs.img_sha256 }}`
-
+          files: |
+            ${{ steps.files.outputs.nixos_file }}
+            ${{ steps.files.outputs.nixos_sha256_file }}
+            ${{ steps.files.outputs.uboot_file }}
+            ${{ steps.files.outputs.uboot_sha256_file }}
           draft: false
           make_latest: true
