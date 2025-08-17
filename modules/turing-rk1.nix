@@ -10,7 +10,9 @@ let
   rootPartitionUUID = "7a684895-6ef1-4586-98d9-2d2013e98286";
 in
 {
-  imports = [ "${pkgs.path}/nixos/modules/installer/sd-card/sd-image.nix" ];
+  imports = [
+    "${pkgs.path}/nixos/modules/installer/sd-card/sd-image-aarch64-installer.nix"
+  ];
 
   boot = {
     kernelPackages = pkgs.linuxPackages_6_15;
